@@ -1,0 +1,1290 @@
+openapi: 3.0.3
+info:
+  title: FII Analyzer API
+  description: |
+    API REST para análise de Fundos de Investimento Imobiliário (FIIs).
+
+    Permite gerenciar o cadastro de fundos imobiliários e obter análises completas
+    com dados de mercado em tempo real, notícias recentes e recomendações de analistas.
+
+    ### Fontes de dados
+    - **Dados de mercado**: Yahoo Finance (preços, variações) + Status Invest (P/VP, DY)
+    - **Notícias**: Google News RSS
+    - **Recomendações**: Status Invest + Google News (detecção por texto)
+
+    ### Cache
+    | Recurso          | TTL        |
+    |------------------|------------|
+    | Dados de mercado | 15 minutos |
+    | Notícias         | 30 minutos |
+    | Recomendações    | 120 minutos|
+  version: 0.0.1-SNAPSHOT
+  contact:
+    name: FII Analyzer
+    email: claudioxtgames@gmail.com
+
+servers:
+  - url: http://localhost:8080
+    description: Servidor local de desenvolvimento
+
+tags:
+  - name: Fundos Imobiliários
+    description: Operações CRUD para gerenciamento de fundos imobiliários cadastrados
+  - name: Análise
+    description: Análise completa de um fundo com dados de mercado, notícias e recomendações
+  - name: Carteiras Recomendadas
+    description: Carteiras de FIIs recomendadas pelas principais casas de análise e bancos
+  - name: Análise por IA
+    description: Análise de sentimento e recomendação gerada por IA (Claude Haiku) com base nas notícias recentes do fundo
+  - name: Análise de Carteira por Imagem
+    description: Análise completa de uma carteira de FIIs a partir de uma imagem enviada pelo usuário, usando visão computacional do Claude Sonnet
+
+paths:
+
+  /api/v1/fundos-imobiliarios:
+
+    get:
+      tags:
+        - Fundos Imobiliários
+      summary: Listar todos os fundos
+      description: Retorna a lista completa de fundos imobiliários cadastrados no sistema.
+      operationId: listarFundos
+      responses:
+        '200':
+          description: Lista de fundos retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FundoImobiliarioResponse'
+              example:
+                - codigo: HGLG11
+                  nome: CSHG Logística FII
+                  tipo: Fundo de Tijolo
+                  segmento: Logística
+                  criadoEm: '2024-01-15T10:00:00'
+                  atualizadoEm: '2024-06-20T14:30:00'
+                - codigo: HGBS11
+                  nome: CSHG Brasil Shopping FII
+                  tipo: Fundo de Tijolo
+                  segmento: Shoppings
+                  criadoEm: '2024-01-15T10:00:00'
+                  atualizadoEm: null
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+    post:
+      tags:
+        - Fundos Imobiliários
+      summary: Cadastrar novo fundo
+      description: Cria um novo fundo imobiliário no sistema com o código, nome, tipo e segmento informados.
+      operationId: criarFundo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FundoImobiliarioRequest'
+            example:
+              codigo: XPML11
+              nome: XP Malls FII
+              tipo: Fundo de Tijolo
+              segmento: Shoppings
+      responses:
+        '201':
+          description: Fundo cadastrado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FundoImobiliarioResponse'
+              example:
+                codigo: XPML11
+                nome: XP Malls FII
+                tipo: Fundo de Tijolo
+                segmento: Shoppings
+                criadoEm: '2026-04-27T09:00:00'
+                atualizadoEm: null
+        '400':
+          $ref: '#/components/responses/ErroBadRequest'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+  /api/v1/fundos-imobiliarios/{codigo}:
+
+    get:
+      tags:
+        - Fundos Imobiliários
+      summary: Buscar fundo por código
+      description: Retorna os dados de um fundo imobiliário específico pelo seu código de negociação (ticker).
+      operationId: buscarFundoPorCodigo
+      parameters:
+        - $ref: '#/components/parameters/CodigoFundo'
+      responses:
+        '200':
+          description: Fundo encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FundoImobiliarioResponse'
+              example:
+                codigo: HGLG11
+                nome: CSHG Logística FII
+                tipo: Fundo de Tijolo
+                segmento: Logística
+                criadoEm: '2024-01-15T10:00:00'
+                atualizadoEm: '2024-06-20T14:30:00'
+        '404':
+          $ref: '#/components/responses/ErroNaoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+    put:
+      tags:
+        - Fundos Imobiliários
+      summary: Atualizar fundo
+      description: Atualiza os dados de um fundo imobiliário existente. O código não pode ser alterado.
+      operationId: atualizarFundo
+      parameters:
+        - $ref: '#/components/parameters/CodigoFundo'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FundoImobiliarioRequest'
+            example:
+              codigo: HGLG11
+              nome: CSHG Logística FII - Atualizado
+              tipo: Fundo de Tijolo
+              segmento: Logística
+      responses:
+        '200':
+          description: Fundo atualizado com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FundoImobiliarioResponse'
+              example:
+                codigo: HGLG11
+                nome: CSHG Logística FII - Atualizado
+                tipo: Fundo de Tijolo
+                segmento: Logística
+                criadoEm: '2024-01-15T10:00:00'
+                atualizadoEm: '2026-04-27T09:00:00'
+        '400':
+          $ref: '#/components/responses/ErroBadRequest'
+        '404':
+          $ref: '#/components/responses/ErroNaoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+    delete:
+      tags:
+        - Fundos Imobiliários
+      summary: Remover fundo
+      description: Remove permanentemente um fundo imobiliário do sistema pelo seu código.
+      operationId: deletarFundo
+      parameters:
+        - $ref: '#/components/parameters/CodigoFundo'
+      responses:
+        '204':
+          description: Fundo removido com sucesso (sem conteúdo)
+        '404':
+          $ref: '#/components/responses/ErroNaoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+  /api/v1/fundos-imobiliarios/{codigo}/analise:
+
+    get:
+      tags:
+        - Análise
+      summary: Análise completa do fundo
+      description: |
+        Retorna uma análise completa do fundo imobiliário, com três fontes de dados
+        obtidas em paralelo de forma assíncrona:
+
+        1. **Dados de mercado** (Yahoo Finance + Status Invest): preço atual, variações percentuais
+           no dia, semana, mês e ano, além de P/VP e Dividend Yield.
+
+        2. **Notícias recentes** (Google News RSS): até 6 notícias mais recentes sobre o fundo.
+
+        3. **Recomendações de analistas** (Status Invest + Google News): recomendações de casas
+           de análise com preço-alvo quando disponível.
+
+        O campo `consenso` é calculado automaticamente:
+        - Se há recomendações: usa a maioria (`COMPRAR`, `VENDER` ou `MANTER`).
+        - Se não há recomendações: usa o P/VP como referência:
+          - P/VP < 0.90 → `POSSÍVEL OPORTUNIDADE`
+          - P/VP > 1.10 → `ATENÇÃO`
+          - Caso contrário → `NEUTRO`
+        - Default: `DADOS INSUFICIENTES`
+
+        > **Cache**: os dados são cacheados (15–120 min conforme o tipo) para evitar
+        > sobrecarga nas fontes externas.
+      operationId: analisarFundo
+      parameters:
+        - $ref: '#/components/parameters/CodigoFundo'
+      responses:
+        '200':
+          description: Análise completa retornada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FiiAnaliseCompleta'
+              example:
+                codigo: HGLG11
+                nome: CSHG Logística FII
+                dadosMercado:
+                  precoAtual: 165.50
+                  pvp: 0.95
+                  variacaoDia: -0.42
+                  variacaoSemana: 1.23
+                  variacaoMes: -2.10
+                  variacaoAno: 8.75
+                  dividendYield: 8.90
+                  atualizadoEm: '2026-04-27T09:30:00'
+                noticias:
+                  - titulo: HGLG11 registra alta de 2% após resultado trimestral
+                    resumo: O fundo CSHG Logística apresentou resultado acima do esperado...
+                    fonte: Infomoney
+                    link: https://www.infomoney.com.br/noticias/hglg11-alta
+                    dataPublicacao: '2026-04-25T14:00:00'
+                recomendacoes:
+                  - casaDeAnalise: XP Investimentos
+                    recomendacao: COMPRAR
+                    precoAlvo: 180.00
+                    fundamentacao: Portfólio diversificado e alta taxa de ocupação favorecem crescimento.
+                    data: '2026-04-10'
+                consenso: COMPRAR
+                geradoEm: '2026-04-27T09:31:05'
+        '404':
+          $ref: '#/components/responses/ErroNaoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+  /api/v1/fundos-imobiliarios/{codigo}/analise-ia:
+
+    get:
+      tags:
+        - Análise por IA
+      summary: Análise por IA baseada em notícias
+      description: |
+        Busca as notícias mais recentes do fundo e envia para o modelo **Claude Haiku**
+        (Anthropic) que realiza uma análise de sentimento e retorna um parecer estruturado.
+
+        A análise inclui:
+        - **Sentimento** geral das notícias (`POSITIVO`, `NEGATIVO` ou `NEUTRO`)
+        - **Pontos positivos** identificados nas notícias (até 5)
+        - **Pontos negativos** e riscos mencionados (até 5)
+        - **Resumo** conciso da situação atual do fundo
+        - **Perspectiva** de curto prazo
+        - **Recomendação** gerada pela IA com base exclusivamente nas notícias
+
+        > O prompt do sistema é cacheado no modelo (TTL 5 min) para reduzir custo e latência
+        > em chamadas consecutivas ao mesmo endpoint.
+      operationId: analisarFiiComIA
+      parameters:
+        - $ref: '#/components/parameters/CodigoFundo'
+      responses:
+        '200':
+          description: Análise por IA retornada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FiiAnaliseIA'
+              example:
+                codigo: HGLG11
+                nome: CSHG Logística FII
+                resumo: O fundo apresenta desempenho sólido com expansão do portfólio logístico...
+                sentimento: POSITIVO
+                pontosPositivos:
+                  - Alta taxa de ocupação nos galpões logísticos
+                  - Novos contratos de longo prazo firmados no trimestre
+                pontosNegativos:
+                  - Pressão inflacionária pode impactar custos operacionais
+                perspectiva: Perspectiva favorável no curto prazo dado o crescimento do e-commerce.
+                recomendacaoIA: Com base nas notícias, o fundo demonstra fundamentos sólidos...
+                totalNoticiasAnalisadas: 6
+                geradoEm: '2026-04-27T10:15:00'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+  /api/v1/carteira/analise-imagem:
+
+    post:
+      tags:
+        - Análise de Carteira por Imagem
+      summary: Analisar carteira por imagem
+      description: |
+        Recebe uma imagem da carteira de FIIs (print de aplicativo, planilha, extrato, etc.)
+        e utiliza o modelo **Claude Sonnet** com visão computacional para analisar a composição
+        e retornar um parecer completo e estruturado.
+
+        A análise identifica os FIIs presentes na imagem e avalia:
+        - **Sentimento geral** da carteira (`POSITIVO`, `NEGATIVO` ou `NEUTRO`)
+        - **Pontos positivos** — diversificação, qualidade dos ativos, dividend yield, etc.
+        - **Pontos negativos** — riscos, concentração excessiva, etc.
+        - **Pontos de atenção** — segmentos sub-representados, FIIs com histórico ruim, etc.
+        - **Sugestões de compra** — FIIs para adicionar à carteira com justificativa
+        - **Sugestões de venda** — FIIs a remover da carteira com justificativa
+        - **Próximos aportes** — onde priorizar os próximos investimentos
+        - **Recomendação geral** consolidada sobre a carteira
+
+        **Formatos aceitos:** JPEG, PNG, GIF, WEBP
+        **Tamanho máximo:** 5 MB
+
+        > O prompt do sistema é cacheado (TTL 5 min) para reduzir custo e latência.
+      operationId: analisarCarteiraPorImagem
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - imagem
+              properties:
+                imagem:
+                  type: string
+                  format: binary
+                  description: Arquivo de imagem da carteira (JPEG, PNG, GIF ou WEBP, máx 5 MB)
+      responses:
+        '200':
+          description: Análise da carteira retornada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarteiraImagemAnalise'
+              example:
+                conversaId: 550e8400-e29b-41d4-a716-446655440000
+                sentimentoGeral: POSITIVO
+                resumo: Carteira bem diversificada entre logística, recebíveis e shoppings. Peso elevado em CRI pode ser um risco em cenário de queda de juros.
+                pontosPositivos:
+                  - Boa diversificação entre segmentos (tijolo e papel)
+                  - Presença de fundos de alta liquidez como HGLG11 e XPML11
+                  - Dividend yield médio estimado acima de 9% ao ano
+                pontosNegativos:
+                  - Concentração excessiva em fundos de recebíveis (mais de 50%)
+                  - Ausência de fundos do segmento de lajes corporativas
+                pontosAtencao:
+                  - KNCR11 com peso de 25% — avaliar redução para melhor diversificação
+                  - Segmento de saúde e educação não representado na carteira
+                fiisParaComprar:
+                  - codigo: HGRU11
+                    justificativa: Fundo de varejo com contratos atípicos e yield acima da média, complementa a carteira no segmento de renda urbana
+                fiisParaVender:
+                  - codigo: MXRF11
+                    justificativa: Peso elevado e sobreposição com outros CRIs da carteira, redução liberaria espaço para diversificação
+                proximosAportes:
+                  - Priorizar HGLG11 — segmento logístico com forte demanda e contratos longos
+                  - Considerar iniciar posição em lajes corporativas para diversificação setorial
+                recomendacaoGeral: Carteira com bom nível de diversificação, porém com concentração acima do ideal em recebíveis. Recomendamos rebalanceamento gradual com foco em tijolo.
+                analisadoEm: '2026-05-01T14:30:00'
+        '400':
+          description: Imagem inválida, formato não suportado ou tamanho excedido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErroValidacao'
+              example:
+                status: 400
+                erro: Bad Request
+                mensagem: "Formato de imagem não suportado: application/pdf. Formatos aceitos: JPEG, PNG, GIF, WEBP."
+                timestamp: '2026-05-01T14:30:00'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+  /api/v1/carteira/{conversaId}/perguntar:
+
+    post:
+      tags:
+        - Análise de Carteira por Imagem
+      summary: Fazer pergunta sobre a carteira analisada
+      description: |
+        Permite ao usuário fazer perguntas em linguagem natural sobre a carteira analisada
+        anteriormente via imagem. O contexto da análise e a imagem original ficam disponíveis
+        por **60 minutos** após a análise inicial.
+
+        **Fluxo de uso:**
+        1. Chame `POST /api/v1/carteira/analise-imagem` com a imagem → receba o `conversaId`
+        2. Use o `conversaId` neste endpoint para fazer perguntas
+        3. Mantenha o `historico` no cliente e envie com cada pergunta para manter o contexto
+
+        **Exemplos de perguntas:**
+        - "Qual é o fundo com maior risco na minha carteira?"
+        - "Quanto devo aportar em HGLG11 para rebalancear?"
+        - "O KNCR11 é uma boa opção para manter?"
+        - "Como está a diversificação por segmento?"
+
+        > A conversa expira em 60 minutos. Após isso, uma nova análise de imagem é necessária.
+      operationId: perguntarSobreCarteira
+      parameters:
+        - name: conversaId
+          in: path
+          required: true
+          description: ID da conversa retornado pela análise de imagem
+          schema:
+            type: string
+            format: uuid
+            example: 550e8400-e29b-41d4-a716-446655440000
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CarteiraChatRequest'
+            examples:
+              primeira_pergunta:
+                summary: Primeira pergunta (sem histórico)
+                value:
+                  pergunta: Qual é o fundo com maior concentração na minha carteira e isso é um risco?
+                  historico: []
+              segunda_pergunta:
+                summary: Segunda pergunta (com histórico)
+                value:
+                  pergunta: Quanto devo aportar nele para rebalancear?
+                  historico:
+                    - role: user
+                      conteudo: Qual é o fundo com maior concentração na minha carteira e isso é um risco?
+                    - role: assistant
+                      conteudo: O KNCR11 representa 30% da sua carteira, o que está acima do recomendado de 20%...
+      responses:
+        '200':
+          description: Resposta gerada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarteiraChatResponse'
+              example:
+                conversaId: 550e8400-e29b-41d4-a716-446655440000
+                pergunta: Qual é o fundo com maior concentração na minha carteira e isso é um risco?
+                resposta: |
+                  Com base na análise da sua carteira, o **KNCR11** é o fundo com maior concentração,
+                  representando aproximadamente 30% do total. Isso está acima do limite recomendado de
+                  20% por ativo, o que representa um risco de concentração.
+
+                  Recomendo reduzir gradualmente essa posição e redistribuir para fundos de outros
+                  segmentos, como logística (HGLG11) ou shoppings (XPML11), para melhor diversificação.
+                respondidoEm: '2026-05-01T15:45:00'
+        '400':
+          $ref: '#/components/responses/ErroBadRequest'
+        '404':
+          description: Conversa não encontrada ou expirada (TTL de 60 minutos)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErroNaoEncontrado'
+              example:
+                status: 404
+                erro: Not Found
+                mensagem: Conversa não encontrada ou expirada. Realize uma nova análise de imagem para iniciar uma conversa.
+                timestamp: '2026-05-01T16:00:00'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+  /api/v1/carteiras-recomendadas:
+
+    get:
+      tags:
+        - Carteiras Recomendadas
+      summary: Listar carteiras recomendadas
+      description: |
+        Retorna a lista de carteiras recomendadas pelas casas de análise cadastradas,
+        ordenadas por mês de referência (mais recente primeiro) e depois por casa de análise.
+
+        Aceita filtros opcionais por `casaDeAnalise` e/ou `mesReferencia`.
+      operationId: listarCarteiras
+      parameters:
+        - name: casaDeAnalise
+          in: query
+          required: false
+          description: Filtra pelo nome da casa de análise (case-insensitive)
+          schema:
+            type: string
+            example: XP Investimentos
+        - name: mesReferencia
+          in: query
+          required: false
+          description: Filtra pelo mês de referência no formato `yyyy-MM-dd` (use o primeiro dia do mês)
+          schema:
+            type: string
+            format: date
+            example: '2026-04-01'
+      responses:
+        '200':
+          description: Lista de carteiras retornada com sucesso
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CarteiraRecomendadaResponse'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+    post:
+      tags:
+        - Carteiras Recomendadas
+      summary: Cadastrar nova carteira recomendada
+      description: Cria uma nova carteira recomendada com seus fundos e respectivos pesos.
+      operationId: criarCarteira
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CarteiraRecomendadaRequest'
+            example:
+              casaDeAnalise: Empiricus Research
+              mesReferencia: '2026-04-01'
+              observacoes: Carteira agressiva com foco em crescimento de NAV.
+              itens:
+                - codigoFundo: HGLG11
+                  peso: 30.00
+                  justificativa: Melhor fundo logístico do mercado com gestão ativa
+                - codigoFundo: KNCR11
+                  peso: 40.00
+                  justificativa: Proteção contra juros com spreads atrativos
+                - codigoFundo: XPML11
+                  peso: 30.00
+                  justificativa: Shoppings premium com crescimento de ABL
+      responses:
+        '201':
+          description: Carteira criada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarteiraRecomendadaResponse'
+        '400':
+          $ref: '#/components/responses/ErroBadRequest'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+  /api/v1/carteiras-recomendadas/{id}:
+
+    get:
+      tags:
+        - Carteiras Recomendadas
+      summary: Buscar carteira por ID
+      description: Retorna os dados completos de uma carteira recomendada específica.
+      operationId: buscarCarteiraPorId
+      parameters:
+        - $ref: '#/components/parameters/CarteiraId'
+      responses:
+        '200':
+          description: Carteira encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarteiraRecomendadaResponse'
+        '404':
+          $ref: '#/components/responses/ErroNaoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+    put:
+      tags:
+        - Carteiras Recomendadas
+      summary: Atualizar carteira recomendada
+      description: |
+        Substitui completamente os dados e itens de uma carteira recomendada existente.
+        Os itens anteriores são removidos e substituídos pelos novos.
+      operationId: atualizarCarteira
+      parameters:
+        - $ref: '#/components/parameters/CarteiraId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CarteiraRecomendadaRequest'
+      responses:
+        '200':
+          description: Carteira atualizada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarteiraRecomendadaResponse'
+        '400':
+          $ref: '#/components/responses/ErroBadRequest'
+        '404':
+          $ref: '#/components/responses/ErroNaoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+    delete:
+      tags:
+        - Carteiras Recomendadas
+      summary: Remover carteira recomendada
+      description: Remove permanentemente uma carteira recomendada e todos os seus itens.
+      operationId: deletarCarteira
+      parameters:
+        - $ref: '#/components/parameters/CarteiraId'
+      responses:
+        '204':
+          description: Carteira removida com sucesso (sem conteúdo)
+        '404':
+          $ref: '#/components/responses/ErroNaoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+components:
+
+  parameters:
+
+    CarteiraId:
+      name: id
+      in: path
+      required: true
+      description: Identificador único da carteira recomendada
+      schema:
+        type: integer
+        format: int64
+        example: 1
+
+    CodigoFundo:
+      name: codigo
+      in: path
+      required: true
+      description: Código de negociação (ticker) do fundo imobiliário, ex: `HGLG11`
+      schema:
+        type: string
+        pattern: '^[A-Z0-9]+$'
+        maxLength: 10
+        example: HGLG11
+
+  schemas:
+
+    FundoImobiliarioRequest:
+      type: object
+      description: Dados para criação ou atualização de um fundo imobiliário
+      required:
+        - codigo
+        - nome
+        - tipo
+        - segmento
+      properties:
+        codigo:
+          type: string
+          description: Código de negociação (ticker) do fundo. Somente letras maiúsculas e números.
+          pattern: '^[A-Z0-9]+$'
+          maxLength: 10
+          example: HGLG11
+        nome:
+          type: string
+          description: Nome completo do fundo imobiliário
+          maxLength: 255
+          example: CSHG Logística FII
+        tipo:
+          type: string
+          description: Tipo do fundo imobiliário
+          maxLength: 100
+          example: Fundo de Tijolo
+          enum:
+            - Fundo de Tijolo
+            - Fundo de Papel
+            - Fundo Híbrido
+            - Fundo de Desenvolvimento
+            - Fundo de Fundos
+        segmento:
+          type: string
+          description: Segmento de atuação do fundo
+          maxLength: 100
+          example: Logística
+
+    FundoImobiliarioResponse:
+      type: object
+      description: Dados de um fundo imobiliário retornado pela API
+      properties:
+        codigo:
+          type: string
+          description: Código de negociação (ticker) do fundo
+          example: HGLG11
+        nome:
+          type: string
+          description: Nome completo do fundo
+          example: CSHG Logística FII
+        tipo:
+          type: string
+          description: Tipo do fundo imobiliário
+          example: Fundo de Tijolo
+        segmento:
+          type: string
+          description: Segmento de atuação
+          example: Logística
+        criadoEm:
+          type: string
+          format: date-time
+          description: Data e hora de criação do registro (ISO 8601)
+          example: '2024-01-15T10:00:00'
+        atualizadoEm:
+          type: string
+          format: date-time
+          nullable: true
+          description: Data e hora da última atualização. Nulo se nunca atualizado.
+          example: '2024-06-20T14:30:00'
+
+    FiiAnaliseCompleta:
+      type: object
+      description: Resultado da análise completa de um fundo imobiliário
+      properties:
+        codigo:
+          type: string
+          description: Código de negociação do fundo analisado
+          example: HGLG11
+        nome:
+          type: string
+          description: Nome completo do fundo
+          example: CSHG Logística FII
+        dadosMercado:
+          $ref: '#/components/schemas/DadosMercado'
+        noticias:
+          type: array
+          description: Até 6 notícias recentes sobre o fundo obtidas do Google News
+          items:
+            $ref: '#/components/schemas/Noticia'
+        recomendacoes:
+          type: array
+          description: Recomendações de analistas e casas de análise
+          items:
+            $ref: '#/components/schemas/Recomendacao'
+        consenso:
+          type: string
+          description: |
+            Consenso calculado automaticamente com base nas recomendações ou no P/VP.
+            Valores possíveis: `COMPRAR`, `VENDER`, `MANTER`, `POSSÍVEL OPORTUNIDADE`,
+            `ATENÇÃO`, `NEUTRO`, `DADOS INSUFICIENTES`.
+          example: COMPRAR
+        geradoEm:
+          type: string
+          format: date-time
+          description: Data e hora em que a análise foi gerada
+          example: '2026-04-27T09:31:05'
+
+    DadosMercado:
+      type: object
+      description: Dados de mercado obtidos do Yahoo Finance e Status Invest
+      properties:
+        precoAtual:
+          type: number
+          format: double
+          description: Preço atual da cota em reais (BRL)
+          example: 165.50
+        pvp:
+          type: number
+          format: double
+          description: Relação Preço/Valor Patrimonial da cota
+          example: 0.95
+        variacaoDia:
+          type: number
+          format: double
+          description: Variação percentual do preço no dia (%)
+          example: -0.42
+        variacaoSemana:
+          type: number
+          format: double
+          description: Variação percentual nos últimos 5 pregões (%)
+          example: 1.23
+        variacaoMes:
+          type: number
+          format: double
+          description: Variação percentual nos últimos 21 pregões (%)
+          example: -2.10
+        variacaoAno:
+          type: number
+          format: double
+          description: Variação percentual nos últimos 252 pregões (%)
+          example: 8.75
+        dividendYield:
+          type: number
+          format: double
+          description: Dividend Yield anualizado (%)
+          example: 8.90
+        atualizadoEm:
+          type: string
+          format: date-time
+          description: Data e hora da última atualização dos dados de mercado
+          example: '2026-04-27T09:30:00'
+
+    Noticia:
+      type: object
+      description: Notícia recente sobre o fundo obtida do Google News RSS
+      properties:
+        titulo:
+          type: string
+          description: Título da notícia
+          example: HGLG11 registra alta de 2% após resultado trimestral
+        resumo:
+          type: string
+          description: Resumo ou trecho da notícia
+          example: O fundo CSHG Logística apresentou resultado acima do esperado...
+        fonte:
+          type: string
+          description: Veículo ou portal de origem da notícia
+          example: Infomoney
+        link:
+          type: string
+          format: uri
+          description: URL completa para a notícia original
+          example: https://www.infomoney.com.br/noticias/hglg11-alta
+        dataPublicacao:
+          type: string
+          format: date-time
+          description: Data e hora de publicação da notícia
+          example: '2026-04-25T14:00:00'
+
+    Recomendacao:
+      type: object
+      description: Recomendação de analista ou casa de análise sobre o fundo
+      properties:
+        casaDeAnalise:
+          type: string
+          description: Nome da casa de análise ou analista responsável
+          example: XP Investimentos
+        recomendacao:
+          type: string
+          description: Tipo de recomendação emitida
+          enum:
+            - COMPRAR
+            - VENDER
+            - MANTER
+          example: COMPRAR
+        precoAlvo:
+          type: number
+          format: double
+          nullable: true
+          description: Preço-alvo estimado em reais (BRL). Pode ser nulo quando não divulgado.
+          example: 180.00
+        fundamentacao:
+          type: string
+          description: Justificativa ou resumo da recomendação
+          example: Portfólio diversificado e alta taxa de ocupação favorecem crescimento.
+        data:
+          type: string
+          format: date
+          description: Data em que a recomendação foi emitida (ISO 8601)
+          example: '2026-04-10'
+
+    CarteiraRecomendadaRequest:
+      type: object
+      description: Dados para criação ou atualização de uma carteira recomendada
+      required:
+        - casaDeAnalise
+        - mesReferencia
+        - itens
+      properties:
+        casaDeAnalise:
+          type: string
+          description: Nome da casa de análise ou banco responsável pela recomendação
+          maxLength: 100
+          example: XP Investimentos
+        mesReferencia:
+          type: string
+          format: date
+          description: Primeiro dia do mês de referência da carteira (yyyy-MM-dd)
+          example: '2026-04-01'
+        observacoes:
+          type: string
+          description: Comentários gerais sobre a estratégia da carteira
+          maxLength: 2000
+          nullable: true
+          example: Carteira com viés defensivo para o segundo trimestre de 2026.
+        itens:
+          type: array
+          description: Fundos que compõem a carteira com seus respectivos pesos
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CarteiraItemRequest'
+
+    CarteiraItemRequest:
+      type: object
+      description: Fundo individual que compõe uma carteira recomendada
+      required:
+        - codigoFundo
+        - peso
+      properties:
+        codigoFundo:
+          type: string
+          description: Código de negociação (ticker) do fundo
+          pattern: '^[A-Z0-9]+$'
+          maxLength: 10
+          example: HGLG11
+        peso:
+          type: number
+          format: double
+          description: Percentual do fundo na carteira (0.01 a 100.00)
+          minimum: 0.01
+          maximum: 100.00
+          example: 15.00
+        justificativa:
+          type: string
+          description: Justificativa da inclusão do fundo na carteira
+          maxLength: 500
+          nullable: true
+          example: Portfólio logístico premium com contratos longos e baixa vacância
+
+    CarteiraRecomendadaResponse:
+      type: object
+      description: Carteira recomendada retornada pela API
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Identificador único da carteira
+          example: 1
+        casaDeAnalise:
+          type: string
+          description: Nome da casa de análise responsável
+          example: XP Investimentos
+        mesReferencia:
+          type: string
+          format: date
+          description: Mês de referência da carteira
+          example: '2026-04-01'
+        observacoes:
+          type: string
+          nullable: true
+          description: Comentários gerais sobre a estratégia da carteira
+          example: Carteira focada em diversificação entre tijolo e papel.
+        itens:
+          type: array
+          description: Fundos da carteira com pesos e justificativas
+          items:
+            $ref: '#/components/schemas/CarteiraItemResponse'
+        totalFundos:
+          type: integer
+          description: Quantidade de fundos na carteira
+          example: 7
+        criadoEm:
+          type: string
+          format: date-time
+          description: Data e hora de criação do registro
+          example: '2026-04-01T10:00:00'
+        atualizadoEm:
+          type: string
+          format: date-time
+          nullable: true
+          description: Data e hora da última atualização
+          example: null
+
+    CarteiraItemResponse:
+      type: object
+      description: Fundo individual dentro de uma carteira recomendada
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Identificador único do item
+          example: 1
+        codigoFundo:
+          type: string
+          description: Código de negociação do fundo
+          example: HGLG11
+        nomeFundo:
+          type: string
+          nullable: true
+          description: Nome completo do fundo (nulo se o fundo não estiver cadastrado)
+          example: CSHG Logística FII
+        segmento:
+          type: string
+          nullable: true
+          description: Segmento do fundo (nulo se o fundo não estiver cadastrado)
+          example: Logística
+        peso:
+          type: number
+          format: double
+          description: Percentual de alocação na carteira
+          example: 15.00
+        justificativa:
+          type: string
+          nullable: true
+          description: Justificativa da inclusão do fundo
+          example: Portfólio logístico premium com contratos longos e baixa vacância
+
+    CarteiraChatRequest:
+      type: object
+      description: Requisição de pergunta sobre a carteira analisada
+      required:
+        - pergunta
+      properties:
+        pergunta:
+          type: string
+          description: Pergunta em linguagem natural sobre a carteira
+          minLength: 1
+          example: Qual é o fundo com maior risco na minha carteira?
+        historico:
+          type: array
+          description: |
+            Histórico completo da conversa até o momento. Deve conter pares alternados
+            de mensagens `user` e `assistant` em ordem cronológica. Envie vazio ou omita
+            na primeira pergunta.
+          items:
+            $ref: '#/components/schemas/MensagemHistorico'
+          example: []
+
+    MensagemHistorico:
+      type: object
+      description: Mensagem de uma rodada anterior da conversa
+      required:
+        - role
+        - conteudo
+      properties:
+        role:
+          type: string
+          description: Papel do emissor da mensagem
+          enum:
+            - user
+            - assistant
+          example: user
+        conteudo:
+          type: string
+          description: Conteúdo da mensagem
+          example: Qual o risco do KNCR11 na minha carteira?
+
+    CarteiraChatResponse:
+      type: object
+      description: Resposta gerada pela IA para a pergunta sobre a carteira
+      properties:
+        conversaId:
+          type: string
+          format: uuid
+          description: ID da conversa (mesmo ID recebido na análise de imagem)
+          example: 550e8400-e29b-41d4-a716-446655440000
+        pergunta:
+          type: string
+          description: Pergunta que originou esta resposta
+          example: Qual é o fundo com maior concentração na minha carteira?
+        resposta:
+          type: string
+          description: Resposta gerada pelo modelo com base na análise e no histórico
+          example: Com base na análise, o KNCR11 representa 30% da carteira...
+        respondidoEm:
+          type: string
+          format: date-time
+          description: Data e hora em que a resposta foi gerada
+          example: '2026-05-01T15:45:00'
+
+    CarteiraImagemAnalise:
+      type: object
+      description: Resultado da análise de uma carteira de FIIs extraída de uma imagem
+      properties:
+        conversaId:
+          type: string
+          format: uuid
+          description: |
+            ID único da conversa. Use este valor no endpoint
+            `POST /api/v1/carteira/{conversaId}/perguntar` para fazer perguntas
+            sobre esta carteira. Válido por 60 minutos.
+          example: 550e8400-e29b-41d4-a716-446655440000
+        sentimentoGeral:
+          type: string
+          description: Sentimento geral avaliado para a carteira
+          enum:
+            - POSITIVO
+            - NEGATIVO
+            - NEUTRO
+          example: POSITIVO
+        resumo:
+          type: string
+          description: Resumo conciso da situação geral da carteira (2-3 frases)
+          example: Carteira bem diversificada com boa exposição a logística e recebíveis.
+        pontosPositivos:
+          type: array
+          description: Pontos favoráveis identificados na carteira (até 5)
+          items:
+            type: string
+          example:
+            - Diversificação entre segmentos de tijolo e papel
+            - Dividend yield médio acima da média do mercado
+        pontosNegativos:
+          type: array
+          description: Pontos desfavoráveis ou riscos identificados na carteira (até 5)
+          items:
+            type: string
+          example:
+            - Concentração excessiva em fundos de recebíveis
+        pontosAtencao:
+          type: array
+          description: Pontos que merecem atenção — concentração individual, segmentos ausentes, etc. (até 5)
+          items:
+            type: string
+          example:
+            - KNCR11 com peso de 25% — avaliar redução
+            - Ausência do segmento de lajes corporativas
+        fiisParaComprar:
+          type: array
+          description: Sugestões de FIIs para adicionar à carteira
+          items:
+            $ref: '#/components/schemas/SugestaoFii'
+        fiisParaVender:
+          type: array
+          description: Sugestões de FIIs para reduzir ou remover da carteira
+          items:
+            $ref: '#/components/schemas/SugestaoFii'
+        proximosAportes:
+          type: array
+          description: Orientações sobre onde direcionar os próximos aportes
+          items:
+            type: string
+          example:
+            - Priorizar HGLG11 pelo crescimento do segmento logístico
+            - Iniciar posição em lajes corporativas para diversificação
+        recomendacaoGeral:
+          type: string
+          description: Recomendação consolidada sobre a carteira
+          example: Carteira sólida, mas com concentração acima do ideal em papel. Recomendamos rebalanceamento gradual.
+        analisadoEm:
+          type: string
+          format: date-time
+          description: Data e hora em que a análise foi gerada
+          example: '2026-05-01T14:30:00'
+
+    SugestaoFii:
+      type: object
+      description: Sugestão de compra ou venda de um FII com justificativa
+      properties:
+        codigo:
+          type: string
+          description: Código de negociação (ticker) do fundo sugerido
+          example: HGRU11
+        justificativa:
+          type: string
+          description: Justificativa da sugestão de compra ou venda
+          example: Fundo de varejo com contratos atípicos e yield acima da média
+
+    FiiAnaliseIA:
+      type: object
+      description: Análise de um FII gerada por IA com base nas notícias recentes
+      properties:
+        codigo:
+          type: string
+          description: Código de negociação do fundo
+          example: HGLG11
+        nome:
+          type: string
+          description: Nome completo do fundo
+          example: CSHG Logística FII
+        resumo:
+          type: string
+          description: Resumo conciso da situação atual baseado nas notícias
+          example: O fundo apresenta desempenho sólido com expansão do portfólio logístico.
+        sentimento:
+          type: string
+          description: Sentimento geral identificado nas notícias
+          enum:
+            - POSITIVO
+            - NEGATIVO
+            - NEUTRO
+          example: POSITIVO
+        pontosPositivos:
+          type: array
+          description: Pontos positivos identificados nas notícias (até 5)
+          items:
+            type: string
+          example:
+            - Alta taxa de ocupação nos galpões logísticos
+            - Novos contratos de longo prazo firmados no trimestre
+        pontosNegativos:
+          type: array
+          description: Pontos negativos ou riscos identificados nas notícias (até 5)
+          items:
+            type: string
+          example:
+            - Pressão inflacionária pode impactar custos operacionais
+        perspectiva:
+          type: string
+          description: Perspectiva de curto prazo baseada nas notícias
+          example: Perspectiva favorável no curto prazo dado o crescimento do e-commerce.
+        recomendacaoIA:
+          type: string
+          description: Recomendação gerada pela IA com base exclusivamente nas notícias analisadas
+          example: Com base nas notícias, o fundo demonstra fundamentos sólidos...
+        totalNoticiasAnalisadas:
+          type: integer
+          description: Quantidade de notícias utilizadas na análise
+          example: 6
+        geradoEm:
+          type: string
+          format: date-time
+          description: Data e hora em que a análise foi gerada
+          example: '2026-04-27T10:15:00'
+
+    ErroValidacao:
+      type: object
+      description: Resposta de erro para falhas de validação (HTTP 400)
+      properties:
+        status:
+          type: integer
+          example: 400
+        erro:
+          type: string
+          example: Bad Request
+        mensagem:
+          type: string
+          description: Descrição do erro de validação
+          example: "codigo: Código deve conter apenas letras maiúsculas e números"
+        timestamp:
+          type: string
+          format: date-time
+          example: '2026-04-27T09:00:00'
+
+    ErroNaoEncontrado:
+      type: object
+      description: Resposta de erro quando o recurso não é localizado (HTTP 404)
+      properties:
+        status:
+          type: integer
+          example: 404
+        erro:
+          type: string
+          example: Not Found
+        mensagem:
+          type: string
+          example: Fundo imobiliário com código XPML11 não encontrado
+        timestamp:
+          type: string
+          format: date-time
+          example: '2026-04-27T09:00:00'
+
+    ErroInterno:
+      type: object
+      description: Resposta de erro para falhas internas do servidor (HTTP 500)
+      properties:
+        status:
+          type: integer
+          example: 500
+        erro:
+          type: string
+          example: Internal Server Error
+        mensagem:
+          type: string
+          example: Erro inesperado ao processar a requisição
+        timestamp:
+          type: string
+          format: date-time
+          example: '2026-04-27T09:00:00'
+
+  responses:
+
+    ErroBadRequest:
+      description: Dados de entrada inválidos ou violação de validação
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErroValidacao'
+
+    ErroNaoEncontrado:
+      description: Fundo imobiliário não encontrado com o código informado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErroNaoEncontrado'
+
+    ErroInterno:
+      description: Erro interno do servidor
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErroInterno'

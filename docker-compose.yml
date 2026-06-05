@@ -1,0 +1,59 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: fii-analyzer-db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-fii_analyzer}
+      POSTGRES_USER: ${DB_USERNAME:-fii_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fii_pass}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - fii_analyzer_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-fii_user} -d ${DB_NAME:-fii_analyzer}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fii-analyzer-backend
+    container_name: fii-analyzer-backend
+    hostname: fii-analyzer-backend
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-fii_analyzer}
+      DB_USERNAME: ${DB_USERNAME:-fii_user}
+      DB_PASSWORD: ${DB_PASSWORD:-fii_pass}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TZ: America/Sao_Paulo
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../fii-analyzer-frontend
+      dockerfile: Dockerfile
+      args:
+        BACKEND_URL: http://fii-analyzer-backend:8080
+    image: fii-analyzer-frontend
+    container_name: fii-analyzer-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  fii_analyzer_data:

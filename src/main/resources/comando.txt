@@ -1,0 +1,4 @@
+## Erros encontrados
+    - Não aparece o botão sair quando está logado, quando clica na > já vai direto pra tela de login, isso é muito errado e atrapalha usabilidade
+    - Mesmo logado não aparece o menu de criar novos usuários. Erro critico
+
