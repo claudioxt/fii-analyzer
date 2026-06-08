@@ -14,5 +14,6 @@ public record CarteiraImagemAnaliseDTO(
         List<SugestaoAtivoDTO> ativosParaVender,
         List<String> proximosAportes,
         String recomendacaoGeral,
-        LocalDateTime analisadoEm
+        LocalDateTime analisadoEm,
+        List<CarteiraChatMensagemDTO> mensagens
 ) {}

@@ -4,9 +4,17 @@ import com.anthropic.client.AnthropicClient;
 import com.anthropic.errors.AnthropicException;
 import com.anthropic.errors.UnauthorizedException;
 import com.anthropic.models.messages.*;
+import com.fii.dto.CarteiraChatMensagemDTO;
 import com.fii.dto.CarteiraChatRequestDTO;
 import com.fii.dto.CarteiraChatResponseDTO;
 import com.fii.dto.MensagemHistoricoDTO;
+import com.fii.entity.CarteiraChatMensagem;
+import com.fii.entity.CarteiraImagemAnalise;
+import com.fii.entity.CarteiraImagemDados;
+import com.fii.entity.Usuario;
+import com.fii.repository.CarteiraChatMensagemRepository;
+import com.fii.repository.CarteiraImagemAnaliseRepository;
+import com.fii.repository.CarteiraImagemDadosRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +23,9 @@ import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 
 @Service
@@ -24,8 +35,12 @@ public class CarteiraChatService {
 
     private final AnthropicClient anthropicClient;
     private final CacheManager cacheManager;
+    private final CarteiraImagemAnaliseRepository analiseRepository;
+    private final CarteiraImagemDadosRepository imagemDadosRepository;
+    private final CarteiraChatMensagemRepository mensagemRepository;
 
     private static final String MODEL = "claude-sonnet-4-6";
+    private static final int LIMITE_HISTORICO = 20;
 
     private static final String SYSTEM_PROMPT_BASE = """
             Você é um analista de investimentos especializado no mercado brasileiro, com expertise em FIIs, ações, BDRs, ações estrangeiras, Tesouro Direto, ETFs, criptoativos e outros ativos.
@@ -48,8 +63,8 @@ public class CarteiraChatService {
             ═══════════════════════════════════════
             """;
 
-    public CarteiraChatResponseDTO perguntar(String conversaId, CarteiraChatRequestDTO request) {
-        ConversaContexto contexto = recuperarContexto(conversaId);
+    public CarteiraChatResponseDTO perguntar(String conversaId, CarteiraChatRequestDTO request, Usuario usuario) {
+        ConversaContexto contexto = recuperarContexto(conversaId, usuario);
 
         log.info("Chat carteira conversaId={} — pergunta: {}", conversaId,
                 request.pergunta().length() > 80
@@ -89,9 +104,15 @@ public class CarteiraChatService {
                     // Resposta sintética do assistente reconhecendo a análise
                     .addAssistantMessage("Certo! Já analisei sua carteira. Pode fazer suas perguntas.");
 
-            // Adiciona o histórico da conversa (pares user/assistant)
-            List<MensagemHistoricoDTO> historico = request.historico() != null
-                    ? request.historico() : List.of();
+            // Histórico: prioriza as mensagens já persistidas da conversa; usa o que o
+            // cliente enviar apenas quando ainda não há histórico salvo (compatibilidade)
+            List<MensagemHistoricoDTO> historico = carregarHistoricoPersistido(conversaId);
+            if (historico.isEmpty() && request.historico() != null) {
+                historico = request.historico();
+            }
+            if (historico.size() > LIMITE_HISTORICO) {
+                historico = historico.subList(historico.size() - LIMITE_HISTORICO, historico.size());
+            }
 
             for (MensagemHistoricoDTO msg : historico) {
                 if ("user".equalsIgnoreCase(msg.role())) {
@@ -116,6 +137,9 @@ public class CarteiraChatService {
                     conversaId,
                     response.usage().cacheReadInputTokens().map(Object::toString).orElse("0"));
 
+            persistirMensagem(conversaId, "USER", request.pergunta());
+            persistirMensagem(conversaId, "ASSISTANT", resposta);
+
             return new CarteiraChatResponseDTO(conversaId, request.pergunta(), resposta, LocalDateTime.now());
 
         } catch (UnauthorizedException e) {
@@ -133,16 +157,83 @@ public class CarteiraChatService {
         }
     }
 
-    private ConversaContexto recuperarContexto(String conversaId) {
+    public List<CarteiraChatMensagemDTO> listarMensagens(String conversaId) {
+        return mensagemRepository.findByConversaIdOrderByCriadoEmAsc(conversaId).stream()
+                .map(m -> new CarteiraChatMensagemDTO(m.getRole(), m.getConteudo(), m.getCriadoEm()))
+                .toList();
+    }
+
+    // ── Recuperação / reconstrução de contexto ───────────────────────────────
+
+    private ConversaContexto recuperarContexto(String conversaId, Usuario usuario) {
         Cache cache = cacheManager.getCache("conversaCarteira");
         if (cache == null) {
             throw new RuntimeException("Cache de conversas não configurado.");
         }
+
         ConversaContexto contexto = cache.get(conversaId, ConversaContexto.class);
-        if (contexto == null) {
-            throw new EntityNotFoundException(
-                    "Conversa não encontrada ou expirada. Realize uma nova análise de imagem para iniciar uma conversa.");
+        if (contexto != null) {
+            return contexto;
         }
+
+        contexto = reconstruirContextoPersistido(conversaId, usuario);
+        cache.put(conversaId, contexto);
+        log.debug("Contexto da conversa reconstruído a partir do banco. conversaId={}", conversaId);
         return contexto;
+    }
+
+    private ConversaContexto reconstruirContextoPersistido(String conversaId, Usuario usuario) {
+        CarteiraImagemAnalise analise = analiseRepository.findByConversaId(conversaId)
+                .filter(a -> pertenceAoUsuario(a, usuario))
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Conversa não encontrada ou não pode ser retomada. Realize uma nova análise de imagem para iniciar uma conversa."));
+
+        CarteiraImagemDados dados = imagemDadosRepository.findById(conversaId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Conversa não encontrada ou não pode ser retomada. Realize uma nova análise de imagem para iniciar uma conversa."));
+
+        String analiseTexto = ConversaContextoTextoBuilder.construir(
+                analise.getSentimentoGeral(),
+                analise.getResumo(),
+                analise.getPontosPositivos(),
+                analise.getPontosNegativos(),
+                analise.getPontosAtencao(),
+                analise.getAtivosParaComprar(),
+                analise.getAtivosParaVender(),
+                analise.getProximosAportes(),
+                analise.getRecomendacaoGeral());
+
+        return new ConversaContexto(
+                Base64.getEncoder().encodeToString(dados.getImagemBytes()),
+                Base64ImageSource.MediaType.of(dados.getMediaType()),
+                analiseTexto);
+    }
+
+    private boolean pertenceAoUsuario(CarteiraImagemAnalise analise, Usuario usuario) {
+        return analise.getUsuario() == null
+                || (usuario != null && analise.getUsuario().getId().equals(usuario.getId()));
+    }
+
+    // ── Histórico de mensagens ────────────────────────────────────────────────
+
+    private List<MensagemHistoricoDTO> carregarHistoricoPersistido(String conversaId) {
+        List<CarteiraChatMensagem> recentes = mensagemRepository.findTop20ByConversaIdOrderByCriadoEmDesc(conversaId);
+        List<CarteiraChatMensagem> cronologico = new ArrayList<>(recentes);
+        Collections.reverse(cronologico);
+        return cronologico.stream()
+                .map(m -> new MensagemHistoricoDTO(m.getRole(), m.getConteudo()))
+                .toList();
+    }
+
+    private void persistirMensagem(String conversaId, String role, String conteudo) {
+        try {
+            mensagemRepository.save(CarteiraChatMensagem.builder()
+                    .conversaId(conversaId)
+                    .role(role)
+                    .conteudo(conteudo)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Falha ao persistir mensagem do chat (conversaId={}, role={}): {}", conversaId, role, e.getMessage());
+        }
     }
 }

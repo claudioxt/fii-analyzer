@@ -83,6 +83,10 @@ public class AppConfig implements WebMvcConfigurer {
                 caffeineCache("noticias", 30),
                 caffeineCache("recomendacoes", 120),
                 caffeineCache("fiisEmAlta", 60),
+                // Camada de otimização para o chat de carteira: evita reconstruir o
+                // contexto (análise + imagem) a partir do banco a cada pergunta.
+                // Em caso de cache miss/expiração, CarteiraChatService reconstrói o
+                // contexto a partir de CarteiraImagemAnalise/CarteiraImagemDados.
                 caffeineCache("conversaCarteira", 60, 20)
         ));
         return manager;

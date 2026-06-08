@@ -45,7 +45,7 @@ public class CarteiraImagemController {
         List<CarteiraImagemAnaliseDTO> dtos = analiseRepository
                 .findByUsuarioOrderByAnalisadoEmDesc(usuario)
                 .stream()
-                .map(this::toDTO)
+                .map(a -> toDTO(a, List.of()))
                 .toList();
         return ResponseEntity.ok(dtos);
     }
@@ -60,17 +60,18 @@ public class CarteiraImagemController {
                 .filter(a -> a.getConversaId().equals(conversaId))
                 .findFirst()
                 .orElseThrow(() -> new EntityNotFoundException("Análise não encontrada: " + conversaId));
-        return ResponseEntity.ok(toDTO(analise));
+        return ResponseEntity.ok(toDTO(analise, chatService.listarMensagens(conversaId)));
     }
 
     @PostMapping("/{conversaId}/perguntar")
     public ResponseEntity<CarteiraChatResponseDTO> perguntar(
             @PathVariable String conversaId,
-            @Valid @RequestBody CarteiraChatRequestDTO request) {
-        return ResponseEntity.ok(chatService.perguntar(conversaId, request));
+            @Valid @RequestBody CarteiraChatRequestDTO request,
+            @AuthenticationPrincipal Usuario usuario) {
+        return ResponseEntity.ok(chatService.perguntar(conversaId, request, usuario));
     }
 
-    private CarteiraImagemAnaliseDTO toDTO(CarteiraImagemAnalise a) {
+    private CarteiraImagemAnaliseDTO toDTO(CarteiraImagemAnalise a, List<CarteiraChatMensagemDTO> mensagens) {
         return new CarteiraImagemAnaliseDTO(
                 a.getConversaId(),
                 a.getSentimentoGeral(),
@@ -82,7 +83,8 @@ public class CarteiraImagemController {
                 a.getAtivosParaVender() != null ? a.getAtivosParaVender() : List.of(),
                 a.getProximosAportes() != null ? a.getProximosAportes() : List.of(),
                 a.getRecomendacaoGeral(),
-                a.getAnalisadoEm()
+                a.getAnalisadoEm(),
+                mensagens
         );
     }
 }

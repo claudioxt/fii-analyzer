@@ -10,8 +10,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fii.dto.CarteiraImagemAnaliseDTO;
 import com.fii.dto.SugestaoAtivoDTO;
 import com.fii.entity.CarteiraImagemAnalise;
+import com.fii.entity.CarteiraImagemDados;
 import com.fii.entity.Usuario;
 import com.fii.repository.CarteiraImagemAnaliseRepository;
+import com.fii.repository.CarteiraImagemDadosRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.Cache;
@@ -35,6 +37,7 @@ public class CarteiraImagemProcessadorService {
     private final ObjectMapper objectMapper;
     private final CacheManager cacheManager;
     private final CarteiraImagemAnaliseRepository analiseRepository;
+    private final CarteiraImagemDadosRepository imagemDadosRepository;
     private final AnaliseJobStore jobStore;
 
     private static final String MODEL = "claude-sonnet-4-6";
@@ -187,6 +190,7 @@ public class CarteiraImagemProcessadorService {
                 .reduce((a, b) -> a + ", " + b)
                 .orElse("desconhecido");
         persistirAnalise(jobId, nomesArquivos, analise, usuario);
+        persistirImagemReferencia(jobId, imagens.get(0).bytes(), mediaPrimeira);
 
         return new CarteiraImagemAnaliseDTO(
                 jobId,
@@ -199,7 +203,8 @@ public class CarteiraImagemProcessadorService {
                 nvl(analise.ativosParaVender()),
                 nvl(analise.proximosAportes()),
                 analise.recomendacaoGeral(),
-                LocalDateTime.now()
+                LocalDateTime.now(),
+                List.of()
         );
     }
 
@@ -280,6 +285,20 @@ public class CarteiraImagemProcessadorService {
         }
     }
 
+    private void persistirImagemReferencia(String conversaId, byte[] bytes, Base64ImageSource.MediaType mediaType) {
+        try {
+            CarteiraImagemDados dados = CarteiraImagemDados.builder()
+                    .conversaId(conversaId)
+                    .imagemBytes(bytes)
+                    .mediaType(mediaType.asString())
+                    .build();
+            imagemDadosRepository.save(dados);
+            log.debug("Imagem de referência persistida. conversaId={}", conversaId);
+        } catch (Exception e) {
+            log.warn("Falha ao persistir imagem de referência (conversaId={}): {}", conversaId, e.getMessage());
+        }
+    }
+
     // ── Cache de conversa ─────────────────────────────────────────────────────
 
     private void armazenarContexto(String conversaId, String base64,
@@ -297,38 +316,16 @@ public class CarteiraImagemProcessadorService {
     }
 
     private String construirContextoTextual(AnaliseImagemResponse analise) {
-        var sb = new StringBuilder();
-        sb.append("Sentimento geral: ").append(analise.sentimentoGeral()).append("\n");
-        sb.append("Resumo: ").append(analise.resumo()).append("\n\n");
-        appendLista(sb, "Pontos positivos", analise.pontosPositivos());
-        appendLista(sb, "Pontos negativos", analise.pontosNegativos());
-        appendLista(sb, "Pontos de atenção", analise.pontosAtencao());
-        if (analise.ativosParaComprar() != null && !analise.ativosParaComprar().isEmpty()) {
-            sb.append("Ativos sugeridos para comprar:\n");
-            analise.ativosParaComprar().forEach(s ->
-                    sb.append("  - ").append(s.codigo())
-                      .append(" [").append(nvlTipo(s.tipoAtivo())).append("]")
-                      .append(": ").append(s.justificativa()).append("\n"));
-            sb.append("\n");
-        }
-        if (analise.ativosParaVender() != null && !analise.ativosParaVender().isEmpty()) {
-            sb.append("Ativos sugeridos para vender:\n");
-            analise.ativosParaVender().forEach(s ->
-                    sb.append("  - ").append(s.codigo())
-                      .append(" [").append(nvlTipo(s.tipoAtivo())).append("]")
-                      .append(": ").append(s.justificativa()).append("\n"));
-            sb.append("\n");
-        }
-        appendLista(sb, "Próximos aportes", analise.proximosAportes());
-        sb.append("Recomendação geral: ").append(analise.recomendacaoGeral());
-        return sb.toString();
-    }
-
-    private void appendLista(StringBuilder sb, String titulo, List<String> itens) {
-        if (itens == null || itens.isEmpty()) return;
-        sb.append(titulo).append(":\n");
-        itens.forEach(i -> sb.append("  - ").append(i).append("\n"));
-        sb.append("\n");
+        return ConversaContextoTextoBuilder.construir(
+                analise.sentimentoGeral(),
+                analise.resumo(),
+                analise.pontosPositivos(),
+                analise.pontosNegativos(),
+                analise.pontosAtencao(),
+                analise.ativosParaComprar(),
+                analise.ativosParaVender(),
+                analise.proximosAportes(),
+                analise.recomendacaoGeral());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

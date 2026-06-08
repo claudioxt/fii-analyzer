@@ -66,3 +66,20 @@ CREATE TABLE IF NOT EXISTS carteira_imagem_analises (
 
 CREATE INDEX IF NOT EXISTS idx_analises_usuario_id   ON carteira_imagem_analises (usuario_id);
 CREATE INDEX IF NOT EXISTS idx_analises_analisado_em ON carteira_imagem_analises (analisado_em DESC);
+
+CREATE TABLE IF NOT EXISTS carteira_imagem_dados (
+    conversa_id  VARCHAR(36)  NOT NULL PRIMARY KEY REFERENCES carteira_imagem_analises(conversa_id) ON DELETE CASCADE,
+    imagem_bytes BYTEA        NOT NULL,
+    media_type   VARCHAR(20)  NOT NULL,
+    criado_em    TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS carteira_chat_mensagens (
+    id          BIGSERIAL    PRIMARY KEY,
+    conversa_id VARCHAR(36)  NOT NULL REFERENCES carteira_imagem_analises(conversa_id) ON DELETE CASCADE,
+    role        VARCHAR(20)  NOT NULL,
+    conteudo    TEXT         NOT NULL,
+    criado_em   TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_mensagens_conversa_criado ON carteira_chat_mensagens (conversa_id, criado_em);
