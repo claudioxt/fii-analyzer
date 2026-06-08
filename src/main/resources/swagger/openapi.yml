@@ -316,27 +316,33 @@ paths:
     post:
       tags:
         - Análise de Carteira por Imagem
-      summary: Analisar carteira por imagem
+      summary: Iniciar análise de carteira por imagem (assíncrono)
       description: |
-        Recebe uma imagem da carteira de FIIs (print de aplicativo, planilha, extrato, etc.)
-        e utiliza o modelo **Claude Sonnet** com visão computacional para analisar a composição
-        e retornar um parecer completo e estruturado.
+        Recebe uma ou mais imagens da carteira de investimentos (prints de aplicativo,
+        planilhas, extratos, etc.) e inicia, em segundo plano, a análise via **Claude Sonnet**
+        com visão computacional.
 
-        A análise identifica os FIIs presentes na imagem e avalia:
+        **Este endpoint é assíncrono**: a resposta não contém o resultado da análise.
+        Em vez disso, retorna imediatamente `202 Accepted` com um `jobId`, que deve ser
+        usado para consultar o andamento em
+        `GET /api/v1/carteira/analise-imagem/status/{jobId}` (polling) até o `status`
+        mudar para `CONCLUIDO` (ou `ERRO`).
+
+        A análise identifica os ativos presentes na imagem e avalia:
         - **Sentimento geral** da carteira (`POSITIVO`, `NEGATIVO` ou `NEUTRO`)
         - **Pontos positivos** — diversificação, qualidade dos ativos, dividend yield, etc.
         - **Pontos negativos** — riscos, concentração excessiva, etc.
-        - **Pontos de atenção** — segmentos sub-representados, FIIs com histórico ruim, etc.
-        - **Sugestões de compra** — FIIs para adicionar à carteira com justificativa
-        - **Sugestões de venda** — FIIs a remover da carteira com justificativa
+        - **Pontos de atenção** — segmentos sub-representados, ativos com histórico ruim, etc.
+        - **Sugestões de compra** — ativos para adicionar à carteira com justificativa
+        - **Sugestões de venda** — ativos a remover da carteira com justificativa
         - **Próximos aportes** — onde priorizar os próximos investimentos
         - **Recomendação geral** consolidada sobre a carteira
 
         **Formatos aceitos:** JPEG, PNG, GIF, WEBP
-        **Tamanho máximo:** 5 MB
+        **Tamanho máximo:** 5 MB por imagem
 
-        > O prompt do sistema é cacheado (TTL 5 min) para reduzir custo e latência.
-      operationId: analisarCarteiraPorImagem
+        > O prompt do sistema é cacheado para reduzir custo e latência.
+      operationId: iniciarAnaliseCarteiraPorImagem
       requestBody:
         required: true
         content:
@@ -344,44 +350,24 @@ paths:
             schema:
               type: object
               required:
-                - imagem
+                - imagens
               properties:
-                imagem:
-                  type: string
-                  format: binary
-                  description: Arquivo de imagem da carteira (JPEG, PNG, GIF ou WEBP, máx 5 MB)
+                imagens:
+                  type: array
+                  description: Uma ou mais imagens da carteira (JPEG, PNG, GIF ou WEBP, máx 5 MB cada)
+                  items:
+                    type: string
+                    format: binary
       responses:
-        '200':
-          description: Análise da carteira retornada com sucesso
+        '202':
+          description: Análise aceita e iniciada em segundo plano — consulte o andamento via polling
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CarteiraImagemAnalise'
+                $ref: '#/components/schemas/AnaliseIniciada'
               example:
-                conversaId: 550e8400-e29b-41d4-a716-446655440000
-                sentimentoGeral: POSITIVO
-                resumo: Carteira bem diversificada entre logística, recebíveis e shoppings. Peso elevado em CRI pode ser um risco em cenário de queda de juros.
-                pontosPositivos:
-                  - Boa diversificação entre segmentos (tijolo e papel)
-                  - Presença de fundos de alta liquidez como HGLG11 e XPML11
-                  - Dividend yield médio estimado acima de 9% ao ano
-                pontosNegativos:
-                  - Concentração excessiva em fundos de recebíveis (mais de 50%)
-                  - Ausência de fundos do segmento de lajes corporativas
-                pontosAtencao:
-                  - KNCR11 com peso de 25% — avaliar redução para melhor diversificação
-                  - Segmento de saúde e educação não representado na carteira
-                fiisParaComprar:
-                  - codigo: HGRU11
-                    justificativa: Fundo de varejo com contratos atípicos e yield acima da média, complementa a carteira no segmento de renda urbana
-                fiisParaVender:
-                  - codigo: MXRF11
-                    justificativa: Peso elevado e sobreposição com outros CRIs da carteira, redução liberaria espaço para diversificação
-                proximosAportes:
-                  - Priorizar HGLG11 — segmento logístico com forte demanda e contratos longos
-                  - Considerar iniciar posição em lajes corporativas para diversificação setorial
-                recomendacaoGeral: Carteira com bom nível de diversificação, porém com concentração acima do ideal em recebíveis. Recomendamos rebalanceamento gradual com foco em tijolo.
-                analisadoEm: '2026-05-01T14:30:00'
+                jobId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                status: PROCESSANDO
         '400':
           description: Imagem inválida, formato não suportado ou tamanho excedido
           content:
@@ -396,29 +382,157 @@ paths:
         '500':
           $ref: '#/components/responses/ErroInterno'
 
+  /api/v1/carteira/analise-imagem/status/{jobId}:
+
+    get:
+      tags:
+        - Análise de Carteira por Imagem
+      summary: Consultar status de uma análise em andamento (polling)
+      description: |
+        Use o `jobId` retornado por `POST /api/v1/carteira/analise-imagem` para
+        acompanhar o progresso do processamento assíncrono. Recomenda-se chamar este
+        endpoint periodicamente (ex.: a cada 2-3 segundos) enquanto `status` for
+        `PROCESSANDO`.
+
+        Quando `status` se tornar:
+        - **`CONCLUIDO`** — o campo `resultado` conterá a análise completa
+        - **`ERRO`** — o campo `erro` conterá uma mensagem descrevendo a falha
+      operationId: consultarStatusAnaliseCarteira
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          description: ID do job retornado por POST /api/v1/carteira/analise-imagem
+          schema:
+            type: string
+            format: uuid
+            example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+      responses:
+        '200':
+          description: Status atual do job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnaliseStatus'
+              examples:
+                em_processamento:
+                  summary: Análise ainda em andamento
+                  value:
+                    jobId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    status: PROCESSANDO
+                    resultado: null
+                    erro: null
+                concluido:
+                  summary: Análise concluída com sucesso
+                  value:
+                    jobId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    status: CONCLUIDO
+                    erro: null
+                    resultado:
+                      conversaId: 550e8400-e29b-41d4-a716-446655440000
+                      sentimentoGeral: POSITIVO
+                      resumo: Carteira bem diversificada entre logística, recebíveis e shoppings.
+                      analisadoEm: '2026-05-01T14:30:00'
+                erro:
+                  summary: Falha no processamento
+                  value:
+                    jobId: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    status: ERRO
+                    resultado: null
+                    erro: Falha ao processar a imagem enviada.
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+  /api/v1/carteira/analise-imagem/historico:
+
+    get:
+      tags:
+        - Análise de Carteira por Imagem
+      summary: Listar histórico de análises de carteira do usuário autenticado
+      description: |
+        Retorna as análises de carteira já realizadas pelo usuário autenticado, da mais
+        recente para a mais antiga. Cada item traz o `conversaId`, que pode ser usado em
+        `GET /api/v1/carteira/analise-imagem/{conversaId}` para ver os detalhes e o
+        histórico de chat, ou em `POST /api/v1/carteira/{conversaId}/perguntar` para
+        continuar a conversa.
+      operationId: listarHistoricoAnaliseCarteira
+      responses:
+        '200':
+          description: Lista de análises retornada com sucesso (vazia se o usuário não tiver análises)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CarteiraImagemAnalise'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
+  /api/v1/carteira/analise-imagem/{conversaId}:
+
+    get:
+      tags:
+        - Análise de Carteira por Imagem
+      summary: Buscar uma análise de carteira pelo conversaId, com histórico de chat
+      description: |
+        Retorna os detalhes completos de uma análise e o histórico de mensagens
+        (`mensagens`) já trocadas na conversa associada, em ordem cronológica. Use este
+        endpoint para restaurar uma conversa anterior na interface antes de permitir que
+        o usuário continue perguntando via `POST /api/v1/carteira/{conversaId}/perguntar`
+        — sem necessidade de reenviar a imagem.
+      operationId: buscarAnaliseCarteiraPorConversa
+      parameters:
+        - name: conversaId
+          in: path
+          required: true
+          description: ID da conversa/análise
+          schema:
+            type: string
+            format: uuid
+            example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        '200':
+          description: Análise (com histórico de mensagens) retornada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CarteiraImagemAnalise'
+        '404':
+          description: Análise não encontrada ou pertencente a outro usuário
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErroNaoEncontrado'
+        '500':
+          $ref: '#/components/responses/ErroInterno'
+
   /api/v1/carteira/{conversaId}/perguntar:
 
     post:
       tags:
         - Análise de Carteira por Imagem
-      summary: Fazer pergunta sobre a carteira analisada
+      summary: Fazer pergunta sobre a carteira analisada (chat contextualizado)
       description: |
-        Permite ao usuário fazer perguntas em linguagem natural sobre a carteira analisada
-        anteriormente via imagem. O contexto da análise e a imagem original ficam disponíveis
-        por **60 minutos** após a análise inicial.
+        Permite ao usuário continuar a conversa sobre uma análise de carteira já realizada,
+        fazendo perguntas em linguagem natural — sem precisar reenviar a imagem.
+
+        O servidor mantém o contexto completo da conversa (imagem original, resumo da
+        análise e histórico de mensagens) de forma **persistente**: mesmo que o cache em
+        memória expire ou a aplicação seja reiniciada, o contexto é reconstruído
+        automaticamente a partir dos dados salvos no banco.
 
         **Fluxo de uso:**
-        1. Chame `POST /api/v1/carteira/analise-imagem` com a imagem → receba o `conversaId`
+        1. Realize uma análise via `POST /api/v1/carteira/analise-imagem` (e aguarde via polling) → obtenha o `conversaId`
         2. Use o `conversaId` neste endpoint para fazer perguntas
-        3. Mantenha o `historico` no cliente e envie com cada pergunta para manter o contexto
+        3. Para retomar uma conversa antiga, busque o histórico em `GET /api/v1/carteira/analise-imagem/{conversaId}`
+           — **não é necessário reenviar o campo `historico`**: o servidor já carrega e
+           gerencia automaticamente as últimas mensagens persistidas
 
         **Exemplos de perguntas:**
         - "Qual é o fundo com maior risco na minha carteira?"
         - "Quanto devo aportar em HGLG11 para rebalancear?"
         - "O KNCR11 é uma boa opção para manter?"
         - "Como está a diversificação por segmento?"
-
-        > A conversa expira em 60 minutos. Após isso, uma nova análise de imagem é necessária.
       operationId: perguntarSobreCarteira
       parameters:
         - name: conversaId
@@ -436,20 +550,10 @@ paths:
             schema:
               $ref: '#/components/schemas/CarteiraChatRequest'
             examples:
-              primeira_pergunta:
-                summary: Primeira pergunta (sem histórico)
+              pergunta_simples:
+                summary: Pergunta (histórico gerenciado automaticamente pelo servidor)
                 value:
                   pergunta: Qual é o fundo com maior concentração na minha carteira e isso é um risco?
-                  historico: []
-              segunda_pergunta:
-                summary: Segunda pergunta (com histórico)
-                value:
-                  pergunta: Quanto devo aportar nele para rebalancear?
-                  historico:
-                    - role: user
-                      conteudo: Qual é o fundo com maior concentração na minha carteira e isso é um risco?
-                    - role: assistant
-                      conteudo: O KNCR11 representa 30% da sua carteira, o que está acima do recomendado de 20%...
       responses:
         '200':
           description: Resposta gerada com sucesso
@@ -471,7 +575,7 @@ paths:
         '400':
           $ref: '#/components/responses/ErroBadRequest'
         '404':
-          description: Conversa não encontrada ou expirada (TTL de 60 minutos)
+          description: Conversa não encontrada ou pertencente a outro usuário
           content:
             application/json:
               schema:
@@ -479,7 +583,7 @@ paths:
               example:
                 status: 404
                 erro: Not Found
-                mensagem: Conversa não encontrada ou expirada. Realize uma nova análise de imagem para iniciar uma conversa.
+                mensagem: "Conversa não encontrada ou não pode ser retomada. Realize uma nova análise de imagem para iniciar uma conversa."
                 timestamp: '2026-05-01T16:00:00'
         '500':
           $ref: '#/components/responses/ErroInterno'
@@ -1017,9 +1121,10 @@ components:
         historico:
           type: array
           description: |
-            Histórico completo da conversa até o momento. Deve conter pares alternados
-            de mensagens `user` e `assistant` em ordem cronológica. Envie vazio ou omita
-            na primeira pergunta.
+            Campo opcional e legado: o servidor já carrega e gerencia automaticamente
+            o histórico persistido da conversa (até as últimas 20 mensagens), portanto
+            normalmente não é necessário enviá-lo. Caso seja enviado e ainda não exista
+            histórico persistido para a conversa, é usado como contexto de fallback.
           items:
             $ref: '#/components/schemas/MensagemHistorico'
           example: []
@@ -1068,15 +1173,17 @@ components:
 
     CarteiraImagemAnalise:
       type: object
-      description: Resultado da análise de uma carteira de FIIs extraída de uma imagem
+      description: Resultado da análise de uma carteira de investimentos extraída de uma imagem
       properties:
         conversaId:
           type: string
           format: uuid
           description: |
-            ID único da conversa. Use este valor no endpoint
-            `POST /api/v1/carteira/{conversaId}/perguntar` para fazer perguntas
-            sobre esta carteira. Válido por 60 minutos.
+            ID único da conversa/análise. Use este valor em
+            `GET /api/v1/carteira/analise-imagem/{conversaId}` para consultar os
+            detalhes e o histórico de chat, ou em
+            `POST /api/v1/carteira/{conversaId}/perguntar` para continuar a conversa
+            — a qualquer momento, sem necessidade de reenviar a imagem.
           example: 550e8400-e29b-41d4-a716-446655440000
         sentimentoGeral:
           type: string
@@ -1113,16 +1220,16 @@ components:
           example:
             - KNCR11 com peso de 25% — avaliar redução
             - Ausência do segmento de lajes corporativas
-        fiisParaComprar:
+        ativosParaComprar:
           type: array
-          description: Sugestões de FIIs para adicionar à carteira
+          description: Sugestões de ativos para adicionar à carteira
           items:
-            $ref: '#/components/schemas/SugestaoFii'
-        fiisParaVender:
+            $ref: '#/components/schemas/SugestaoAtivo'
+        ativosParaVender:
           type: array
-          description: Sugestões de FIIs para reduzir ou remover da carteira
+          description: Sugestões de ativos para reduzir ou remover da carteira
           items:
-            $ref: '#/components/schemas/SugestaoFii'
+            $ref: '#/components/schemas/SugestaoAtivo'
         proximosAportes:
           type: array
           description: Orientações sobre onde direcionar os próximos aportes
@@ -1140,19 +1247,102 @@ components:
           format: date-time
           description: Data e hora em que a análise foi gerada
           example: '2026-05-01T14:30:00'
+        mensagens:
+          type: array
+          description: |
+            Histórico de mensagens (perguntas e respostas) já trocadas nesta conversa,
+            em ordem cronológica. Lista vazia se ainda não houve nenhuma pergunta.
+            Disponível apenas em `GET /api/v1/carteira/analise-imagem/{conversaId}`
+            (vazio em `/historico`).
+          items:
+            $ref: '#/components/schemas/CarteiraChatMensagem'
 
-    SugestaoFii:
+    SugestaoAtivo:
       type: object
-      description: Sugestão de compra ou venda de um FII com justificativa
+      description: Sugestão de compra ou venda de um ativo com justificativa
       properties:
         codigo:
           type: string
-          description: Código de negociação (ticker) do fundo sugerido
+          description: Código de negociação (ticker) do ativo sugerido
           example: HGRU11
+        tipoAtivo:
+          type: string
+          description: Tipo do ativo sugerido (FII, ação, BDR, Tesouro Direto, ETF, etc.)
+          example: FII
         justificativa:
           type: string
           description: Justificativa da sugestão de compra ou venda
           example: Fundo de varejo com contratos atípicos e yield acima da média
+
+    CarteiraChatMensagem:
+      type: object
+      description: Mensagem persistida de uma conversa de chat sobre a carteira
+      properties:
+        role:
+          type: string
+          description: Autor da mensagem
+          enum:
+            - USER
+            - ASSISTANT
+          example: USER
+        conteudo:
+          type: string
+          description: Conteúdo da mensagem
+          example: Qual é o fundo com maior risco na minha carteira?
+        criadoEm:
+          type: string
+          format: date-time
+          description: Data e hora em que a mensagem foi registrada
+          example: '2026-05-01T15:45:00'
+
+    AnaliseIniciada:
+      type: object
+      description: |
+        Confirmação de que a análise de imagem foi aceita e está sendo processada de
+        forma assíncrona. Use o `jobId` para consultar o andamento em
+        `GET /api/v1/carteira/analise-imagem/status/{jobId}`.
+      properties:
+        jobId:
+          type: string
+          format: uuid
+          description: Identificador do job de análise
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        status:
+          type: string
+          description: Status inicial do job (sempre PROCESSANDO ao ser aceito)
+          example: PROCESSANDO
+
+    AnaliseStatus:
+      type: object
+      description: |
+        Estado atual de um job de análise de imagem. Enquanto `status` for
+        `PROCESSANDO`, os campos `resultado` e `erro` permanecem nulos. Faça polling
+        neste endpoint até `status` se tornar `CONCLUIDO` (resultado preenchido) ou
+        `ERRO` (erro preenchido).
+      properties:
+        jobId:
+          type: string
+          format: uuid
+          description: Identificador do job de análise
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        status:
+          type: string
+          description: Estado atual do processamento
+          enum:
+            - PROCESSANDO
+            - CONCLUIDO
+            - ERRO
+          example: CONCLUIDO
+        resultado:
+          description: Resultado da análise — presente apenas quando status for CONCLUIDO
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/CarteiraImagemAnalise'
+        erro:
+          type: string
+          description: Mensagem de erro — presente apenas quando status for ERRO
+          nullable: true
+          example: Falha ao processar a imagem enviada.
 
     FiiAnaliseIA:
       type: object
